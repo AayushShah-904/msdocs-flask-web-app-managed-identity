@@ -7,3 +7,4 @@ python-dotenv
 SQLAlchemy
 azure-storage-blob
 azure-identity
+gunicorn
