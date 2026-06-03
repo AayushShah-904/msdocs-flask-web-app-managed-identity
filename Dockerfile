@@ -11,15 +11,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
 
+# Create a non-privileged system user and group
+RUN groupadd -r appgroup && useradd -r -g appgroup -d /app -s /sbin/nologin appuser
+
 # Set work directory
 WORKDIR /app
 
-# Install dependencies
-COPY requirements.txt /app/
-RUN pip install --no-cache-dir -r requirements.txt
+# Set correct ownership for work directory
+RUN chown appuser:appgroup /app
 
-# Copy project
-COPY . /app/
+# Switch to the non-privileged user
+USER appuser
+
+# Copy requirements and install dependencies
+COPY --chown=appuser:appgroup requirements.txt /app/
+RUN pip install --no-cache-dir --user -r requirements.txt
+
+# Add user pip bin directory to PATH
+ENV PATH="/app/.local/bin:${PATH}"
+
+# Copy the rest of the project files
+COPY --chown=appuser:appgroup . /app/
 
 # Expose port 8000
 EXPOSE 8000

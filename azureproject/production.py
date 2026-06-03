@@ -2,11 +2,17 @@ import os
 import secrets
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ['SECRET_KEY'] if 'SECRET_KEY' in os.environ else secrets.token_hex()
+if 'SECRET_KEY' in os.environ:
+    SECRET_KEY = os.environ['SECRET_KEY']
+else:
+    import warnings
+    warnings.warn("SECRET_KEY environment variable is not set. A random key was generated, which will invalidate sessions on restart or scale-out.")
+    SECRET_KEY = secrets.token_hex()
 
 DEBUG = False
 ALLOWED_HOSTS = [os.environ['WEBSITE_HOSTNAME']] if 'WEBSITE_HOSTNAME' in os.environ else []
-CSRF_TRUSTED_ORIGINS = ['https://'+ os.environ['WEBSITE_HOSTNAME']] if 'WEBSITE_HOSTNAME' in os.environ else []
+WTF_CSRF_TRUSTED_ORIGINS = ['https://'+ os.environ['WEBSITE_HOSTNAME']] if 'WEBSITE_HOSTNAME' in os.environ else []
+
 
 if not 'AZURE_POSTGRESQL_CONNECTIONSTRING' in os.environ:
     # Configure Postgres database; the full username for PostgreSQL flexible server is
