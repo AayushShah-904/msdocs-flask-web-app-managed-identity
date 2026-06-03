@@ -2,7 +2,7 @@ Flask
 Flask-Migrate
 Flask-SQLAlchemy
 Flask-WTF
-psycopg2
+psycopg2-binary
 python-dotenv
 SQLAlchemy
 azure-storage-blob
