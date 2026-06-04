@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.43.8.12551",
-      "templateHash": "13756949529105249749"
+      "templateHash": "11226783219266038660"
     }
   },
   "parameters": {
@@ -40,6 +40,13 @@
       "defaultValue": "[uniqueString(resourceGroup().id)]",
       "metadata": {
         "description": "The Flask session secret key (defaults to a unique string generated from resource group ID)"
+      }
+    },
+    "devGroupPrincipalId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional: The principal Object ID of the Microsoft Entra ID dev group (to assign Contributor role at Resource Group scope)"
       }
     }
   },
@@ -78,6 +85,17 @@
       "dependsOn": [
         "[resourceId('Microsoft.Resources/deployments', 'appDeployment')]"
       ]
+    },
+    {
+      "condition": "[not(empty(parameters('devGroupPrincipalId')))]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "name": "[guid(resourceGroup().id, parameters('devGroupPrincipalId'), 'Contributor')]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c')]",
+        "principalId": "[parameters('devGroupPrincipalId')]",
+        "principalType": "Group"
+      }
     },
     {
       "type": "Microsoft.Resources/deployments",
