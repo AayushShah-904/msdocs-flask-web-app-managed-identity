@@ -8,6 +8,51 @@
 
 ---
 
+## 📊 Architecture Overview
+
+```mermaid
+flowchart TD
+    DEV["👨‍💻 Developer\ngit push → main"] --> GH
+
+    subgraph CI["🔁 CI/CD — GitHub Actions"]
+        GH["GitHub\n(source code + secrets)"]
+        GA["GitHub Actions Runner\n(ubuntu-latest)"]
+        GH -->|triggers workflow on push| GA
+    end
+
+    subgraph Azure["☁️ Azure — Region: Southeast Asia"]
+        ACR["📦 Azure Container Registry\n(private Docker image store)"]
+        APP["🌐 App Service Web App\n(Flask + Gunicorn container)"]
+        MI["🪪 System-Assigned\nManaged Identity"]
+        PG["🐘 PostgreSQL Flexible Server v15\n(restaurant DB)"]
+        STORE["🗄️ Azure Blob Storage\n(photos container)"]
+
+        APP --- MI
+        MI -->|AcrPull role| ACR
+        MI -->|Entra token via Entra Admin| PG
+        MI -->|Storage Blob Data Contributor role| STORE
+    end
+
+    GA -->|docker build + push :latest| ACR
+    ACR -->|CD webhook — auto pull on :latest push| APP
+    GA -->|az webapp restart| APP
+```
+
+---
+
+## ⚙️ Confirmed Decisions
+
+| Resource | Choice | Rationale |
+|---|---|---|
+| **Azure Region** | `southeastasia` | User preference |
+| **PostgreSQL Version** | `15` | User preference |
+| **Base Docker Image** | `python:3.10-slim` | Matches project's Dockerfile |
+| **Database Authentication** | Microsoft Entra (Passwordless) | Configured manually (replaces Service Connector due to CLI bugs) |
+| **Storage Authentication** | Managed Identity + RBAC | `Storage Blob Data Contributor` role (no keys) |
+| **GitHub Repository** | [AayushShah-904/msdocs-flask-web-app-managed-identity](https://github.com/AayushShah-904/msdocs-flask-web-app-managed-identity) | Repository for GitHub Actions CI/CD |
+
+---
+
 ## 📋 Prerequisites
 
 Before you start, make sure you have:
@@ -596,22 +641,31 @@ az group delete --name $RESOURCE_GROUP --yes --no-wait
 ## 📊 Full Architecture Summary
 
 ```mermaid
-graph TD
-    DEV["👨‍💻 Developer (local git push)"]
-    subgraph Azure["☁️ Azure Resource Group: msdocs-mi-rg"]
-        APP["🌐 App Service\n(Flask + Gunicorn)"]
-        MI["🪪 System-Assigned\nManaged Identity"]
-        PG["🐘 PostgreSQL\nFlexible Server"]
-        STORE["📦 Azure Blob\nStorage (photos)"]
-        SC["🔌 Service Connector\n(sets AZURE_POSTGRESQL_CONNECTIONSTRING)"]
+flowchart TD
+    DEV["👨‍💻 Developer\ngit push → main"] --> GH
+
+    subgraph CI["🔁 CI/CD — GitHub Actions"]
+        GH["GitHub\n(source code + secrets)"]
+        GA["GitHub Actions Runner\n(ubuntu-latest)"]
+        GH -->|triggers workflow on push| GA
     end
 
-    DEV -->|git push azure main| APP
-    APP --> MI
-    MI -->|Entra token via Service Connector| PG
-    MI -->|Storage Blob Data Contributor role| STORE
-    SC --> APP
-    SC --> PG
+    subgraph Azure["☁️ Azure — Region: Southeast Asia"]
+        ACR["📦 Azure Container Registry\n(private Docker image store)"]
+        APP["🌐 App Service Web App\n(Flask + Gunicorn container)"]
+        MI["🪪 System-Assigned\nManaged Identity"]
+        PG["🐘 PostgreSQL Flexible Server v15\n(restaurant DB)"]
+        STORE["🗄️ Azure Blob Storage\n(photos container)"]
+
+        APP --- MI
+        MI -->|AcrPull role| ACR
+        MI -->|Entra token via Entra Admin| PG
+        MI -->|Storage Blob Data Contributor role| STORE
+    end
+
+    GA -->|docker build + push :latest| ACR
+    ACR -->|CD webhook — auto pull on :latest push| APP
+    GA -->|az webapp restart| APP
 ```
 
 ---
@@ -622,14 +676,79 @@ graph TD
 |---|---|
 | `az group create` | Home → Resource Groups → Create |
 | `az postgres flexible-server create` | Create resource → Azure Database for PostgreSQL |
+| `az postgres flexible-server db create` | Database Server → Databases → Add |
+| `az postgres flexible-server firewall-rule create` | Database Server → Networking → Add firewall rule |
 | `az storage account create` | Create resource → Storage Account |
+| `az storage container create` | Storage Account → Containers → Add Container |
 | `az appservice plan create` | App Services → Create → App Service Plan tab |
 | `az webapp create` | App Services → Create → Web App |
 | `az webapp identity assign` | App Service → Identity → System Assigned → On |
-| `az role assignment create` | Storage Account → Access Control (IAM) → Add role assignment |
-| `az webapp connection create postgres-flexible` | App Service → Service Connector → Create |
+| `az role assignment create` | Storage Account / ACR → Access Control (IAM) → Add role assignment |
+| `az postgres flexible-server update --microsoft-entra-auth Enabled` | Database Server → Authentication → Enable Microsoft Entra auth |
+| `az postgres flexible-server microsoft-entra-admin create` | Database Server → Authentication → Add Entra Admin |
 | `az webapp config appsettings set` | App Service → Configuration → Application Settings |
-| `az webapp config set --startup-file` | App Service → Configuration → General Settings → Startup Command |
-| `git push azure main` | App Service → Deployment Center → Local Git |
+| `az acr create` | Create resource → Container Registry |
+| `az acr login` + `docker build` + `docker push` | Manual terminal build + push to registry |
+| `az webapp config container set` | App Service → Deployment Center → Container Settings |
 | `az webapp ssh` | App Service → SSH (Console) |
 | `az group delete` | Resource Group → Delete resource group |
+
+---
+
+## 🔍 Troubleshooting & Error Resolution Log
+
+During execution of the CLI commands, we encountered and resolved the following key errors:
+
+### 1. Database Server SKU Casing & Spelling
+* **Error:** `Invalid value for --sku-name. Provide a valid SKU name for this tier.`
+* **Cause:** Typing `Standarad_B1ms` with an extra **a** (Stand**a**rad), and using mixed case casing.
+* **Resolution:** Corrected spelling to the exact lowercase standard: `--sku-name standard_b1ms`.
+
+### 2. Database Creation Option
+* **Error:** `the following arguments are required: --name/-n`
+* **Cause:** Running `az postgres flexible-server db create` using the argument `--database-name` which is not the correct parameter.
+* **Resolution:** Replaced `--database-name` with `--name` / `-n`.
+
+### 3. Firewall Rule Creation Parameters
+* **Error:** `the following arguments are required: --server-name/-s`
+* **Cause:** Passing `--name` to identify the database server and `--rule-name` for the rule. For firewall rules, `--server-name` identifies the server, and `--name` identifies the rule name.
+* **Resolution:** Corrected parameters: `--server-name $POSTGRES_SERVER` and `--name AllowAllAzureIPs`.
+
+### 4. Service Connector Command Bug
+* **Error:** `unrecognized arguments: --database-name restaurant` (during `az webapp connection create`)
+* **Cause:** A version mismatch between Azure CLI and the Service Connector extension. The extension was calling `az postgres flexible-server db show` internally using the deprecated `--database-name` parameter under the hood.
+* **Resolution:** Bypassed the Service Connector tool entirely. We configured passwordless identity manually using Step 5 (Microsoft Entra Admin settings on the PostgreSQL database server) and Step 6 (injecting environment settings `DBHOST`, `DBNAME`, and `DBUSER` directly into the app settings).
+
+### 5. Microsoft Entra ID Authentication Disabled
+* **Error:** `Microsoft Entra authentication isn't enabled in server`
+* **Cause:** PostgreSQL flexible servers do not allow Entra ID authentication by default on creation.
+* **Resolution:** Enabled it explicitly first using:
+  `az postgres flexible-server update --microsoft-entra-auth Enabled`
+  And corrected the Entra admin command syntax to the modern CLI command group: `microsoft-entra-admin create`.
+
+### 6. Container Registry Resource Provider Missing
+* **Error:** `The subscription is not registered to use namespace 'Microsoft.ContainerRegistry'`
+* **Cause:** The `Microsoft.ContainerRegistry` namespace was not registered on the active subscription.
+* **Resolution:** Registered the provider manually using:
+  `az provider register --namespace Microsoft.ContainerRegistry`
+
+### 7. Docker Desktop Inactive
+* **Error:** `failed to connect to the docker API... check if the path is correct and if the daemon is running`
+* **Cause:** Docker Desktop was not open on the local Windows machine.
+* **Resolution:** Started Docker Desktop locally before building the container image.
+
+### 8. Invalid Tag Variable Format
+* **Error:** `invalid reference format: invalid tag "msdocsacras904.azurecr.io/:latest"`
+* **Cause:** An extra `$` inside the PowerShell variable reference (`${$APP_NAME}`).
+* **Resolution:** Corrected variable syntax to: `${APP_NAME}`.
+
+### 9. Web App Container Timeout (230s)
+* **Error:** `Container did not start within expected time limit of 230s`
+* **Cause:** The Docker container binds to Gunicorn port `8000`, but Azure App Service expects traffic on port `80` or `8080` by default. Because no custom port was specified, Azure's internal container ping health checks timed out.
+* **Resolution:** Added `WEBSITES_PORT=8000` to the App Settings so App Service redirects health checks and user traffic to port `8000`.
+
+### 10. App Settings Variable Type Mismatch
+* **Error:** `TypeError: 'int' object is not iterable`
+* **Cause:** Passing a raw integer `$WEBSITES_PORT` directly to `--settings` in PowerShell.
+* **Resolution:** Specified the configuration as a direct string: `WEBSITES_PORT=8000`.
+
