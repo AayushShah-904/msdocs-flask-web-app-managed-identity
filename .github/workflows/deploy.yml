@@ -6,9 +6,9 @@ on:
       - main
 
 env:
-  ACR_NAME: msdocsacr<unique-suffix>.azurecr.io
-  IMAGE_NAME: msdocs-mi-webapp-<unique-suffix>
-  WEBAPP_NAME: msdocs-mi-webapp-<unique-suffix>
+  ACR_NAME: msdocsacraayush42.azurecr.io
+  IMAGE_NAME: msdocs-mi-webapp-aayush42
+  WEBAPP_NAME: msdocs-mi-webapp-aayush42
   RESOURCE_GROUP: msdocs-mi-rg
 
 jobs:
