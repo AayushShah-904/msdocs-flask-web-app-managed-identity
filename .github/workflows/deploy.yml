@@ -1,0 +1,46 @@
+name: Build and Deploy to Azure App Service
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  ACR_NAME: msdocsacr<unique-suffix>.azurecr.io
+  IMAGE_NAME: msdocs-mi-webapp-<unique-suffix>
+  WEBAPP_NAME: msdocs-mi-webapp-<unique-suffix>
+  RESOURCE_GROUP: msdocs-mi-rg
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Login to Azure Container Registry
+        run: az acr login --name ${{ env.ACR_NAME }}
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t ${{ env.ACR_NAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            -t ${{ env.ACR_NAME }}/${{ env.IMAGE_NAME }}:latest \
+            .
+
+      - name: Push image to ACR
+        run: |
+          docker push ${{ env.ACR_NAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          docker push ${{ env.ACR_NAME }}/${{ env.IMAGE_NAME }}:latest
+
+      - name: Restart Web App
+        run: |
+          az webapp restart \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name ${{ env.WEBAPP_NAME }}
