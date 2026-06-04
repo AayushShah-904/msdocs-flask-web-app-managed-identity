@@ -25,6 +25,40 @@ infra/
 
 ---
 
+## 🔍 Bicep Template & Module Breakdown
+
+### 1. [infra/main.bicep](file:///d:/Computer/Workspace/Projects/msdocs-flask-web-app-managed-identity/infra/main.bicep) (The Orchestrator)
+This is the root Bicep file that coordinates the entire deployment. 
+* **Dynamic Suffixes**: It accepts a single `appNameSuffix` parameter and dynamically constructs the globally unique resource names (e.g. `msdocsstorageaayush42`).
+* **Dependency Linking**: It calls all individual modules. Because it passes outputs from one module (like `acr.outputs.loginServer`) into parameters of another (like `app.bicep`), Bicep automatically determines the correct creation order.
+* **Role Assignments**: It defines the Azure RBAC roles. Once the Web App is created, `main.bicep` assigns the `Storage Blob Data Contributor` role (on the Storage account scope) and `AcrPull` role (on the Container Registry scope) to the Web App's generated Managed Identity.
+
+### 2. [infra/modules/acr.bicep](file:///d:/Computer/Workspace/Projects/msdocs-flask-web-app-managed-identity/infra/modules/acr.bicep) (Docker Registry)
+Provisions the private **Azure Container Registry** (ACR).
+* It defaults to the cost-effective `Basic` SKU.
+* It enables the admin user (`adminUserEnabled: true`) as a backup access mechanism, although the primary method is passwordless authentication.
+* It outputs the registry's login URL (`loginServer`) so the Web App container settings can target the correct image pathway.
+
+### 3. [infra/modules/storage.bicep](file:///d:/Computer/Workspace/Projects/msdocs-flask-web-app-managed-identity/infra/modules/storage.bicep) (Blob Storage)
+Provisions the **Azure Storage Account** and creates the target blob container.
+* It sets the SKU to `Standard_LRS` and configures a private container named `photos` (via child and grandchild resource definitions: `blobServices` and `containers`).
+* It explicitly disables public blob access (`allowBlobPublicAccess: false`), ensuring that review photos are secured and can only be read/written by the Web App using Managed Identity.
+
+### 4. [infra/modules/app.bicep](file:///d:/Computer/Workspace/Projects/msdocs-flask-web-app-managed-identity/infra/modules/app.bicep) (Web Hosting)
+Provisions the **App Service Plan** and **Web App**.
+* **Linux Container**: Creates a Linux App Service Plan (`B1` SKU) and configures the Web App to run in custom container mode.
+* **Managed Identity**: Enables a System-Assigned Managed Identity on the Web App and sets `acrUseManagedIdentityCreds: true` so the App Service can authenticate against ACR without storing login keys.
+* **Environment Variables**: Injects environment settings (like database hosts `DBHOST` and container ports `WEBSITES_PORT=8000`) directly into the web application's configuration.
+
+### 5. [infra/modules/db.bicep](file:///d:/Computer/Workspace/Projects/msdocs-flask-web-app-managed-identity/infra/modules/db.bicep) (Database Server)
+Provisions the **PostgreSQL Flexible Server** and database schema.
+* **Burstable SKU**: Provisions a cheap `standard_b1ms` Burstable VM with 32GB of storage.
+* **Microsoft Entra ID Authentication**: Sets `authConfig.activeDirectoryAuth: 'Enabled'` to allow Entra ID (Azure AD) logins.
+* **Entra Administrator**: Registers the Web App's Managed Identity principal ID as the database administrator. This allows passwordless database token requests via `DefaultAzureCredential`.
+* **Ordering Delay**: The database creation, firewall rules, and Entra Admin are tied together using explicit dependencies (`dependsOn`) to prevent race conditions during startup.
+
+---
+
 ## 📊 Bicep Architecture Overview
 
 ```mermaid
